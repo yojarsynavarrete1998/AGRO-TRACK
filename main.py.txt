@@ -1,0 +1,84 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+import time
+
+# Configuración visual de la App
+st.set_page_config(page_title="AgroTrack Pro", page_icon="🚜", layout="wide")
+
+st.title("🚜 Sistema de Gestión Agrícola")
+st.markdown("### Registro de Actividades en Tiempo Real")
+
+# --- INICIALIZACIÓN DE DATOS (Estado de la Sesión) ---
+if 'historial' not in st.session_state:
+    st.session_state.historial = []
+
+if 'cronometros' not in st.session_state:
+    st.session_state.cronometros = {
+        "Riego": {"activo": False, "inicio": None},
+        "Foliar": {"activo": False, "inicio": None},
+        "Fertirriego": {"activo": False, "inicio": None}
+    }
+
+if 'parcelas' not in st.session_state:
+    st.session_state.parcelas = {f"Parcela {i}": "Libre" for i in range(1, 7)}
+
+# --- SECCIÓN 1: ESTADO DE PARCELAS ---
+st.subheader("📍 Mapa de Bloques")
+cols_p = st.columns(3)
+for i, (nombre, estado) in enumerate(st.session_state.parcelas.items()):
+    with cols_p[i % 3]:
+        color = "🟢" if estado == "Libre" else "🔴"
+        st.info(f"{color} **{nombre}**: {estado}")
+        if st.button(f"Cambiar {nombre}", key=f"btn_{nombre}"):
+            st.session_state.parcelas[nombre] = "EN LABOR" if estado == "Libre" else "Libre"
+            st.rerun()
+
+st.divider()
+
+# --- SECCIÓN 2: CRONÓMETRO DE LABORES ---
+st.subheader("⚡ Control de Tareas")
+c1, c2, c3 = st.columns(3)
+
+def controlador_tiempo(nombre_tarea, columna):
+    with columna:
+        estado = st.session_state.cronometros[nombre_tarea]
+        if not estado["activo"]:
+            if st.button(f"▶️ Iniciar {nombre_tarea}", use_container_width=True):
+                st.session_state.cronometros[nombre_tarea]["activo"] = True
+                st.session_state.cronometros[nombre_tarea]["inicio"] = datetime.now()
+                st.rerun()
+        else:
+            st.error(f"⏳ {nombre_tarea} en curso...")
+            if st.button(f"⏹️ Detener {nombre_tarea}", type="primary", use_container_width=True):
+                fin = datetime.now()
+                inicio = estado["inicio"]
+                duracion = fin - inicio
+                
+                # Guardar registro
+                registro = {
+                    "Actividad": nombre_tarea,
+                    "Inicio": inicio.strftime("%H:%M:%S"),
+                    "Fin": fin.strftime("%H:%M:%S"),
+                    "Duración": str(duracion).split(".")[0] # Quita los microsegundos
+                }
+                st.session_state.historial.append(registro)
+                st.session_state.cronometros[nombre_tarea]["activo"] = False
+                st.rerun()
+
+controlador_tiempo("Riego", c1)
+controlador_tiempo("Foliar", c2)
+controlador_tiempo("Fertirriego", c3)
+
+# --- SECCIÓN 3: TABLA DE DATOS ---
+st.divider()
+st.subheader("📋 Bitácora del Día")
+if st.session_state.historial:
+    df = pd.DataFrame(st.session_state.historial)
+    st.table(df)
+    
+    # Botón de exportación rápido
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("📩 Descargar Reporte CSV", csv, "reporte_agricola.csv", "text/csv")
+else:
+    st.write("Aún no hay labores terminadas hoy.")
