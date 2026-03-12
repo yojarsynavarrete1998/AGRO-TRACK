@@ -134,7 +134,8 @@ with tab1:
         st.dataframe(semanal, use_container_width=True)
         
         csv = diario.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Excel Cosecha", csv, "cose
+        st.download_button("📥 Descargar Excel Cosecha", csv, "cosecha.csv")
+
 
 
 
