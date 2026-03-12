@@ -2,8 +2,24 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
+import os # Necesario para verificar si la imagen existe
 
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="AgroTrack Pro Honduras", layout="wide", page_icon="🚜")
+
+# --- SECCIÓN DEL LOGO (NUEVO) ---
+# Intentamos cargar el logo desde la carpeta del repositorio
+logo_path = "logo.png" # Asegúrate de que este nombre coincida con el que subiste a GitHub
+
+if os.path.exists(logo_path):
+    # Usamos columnas para centrar el logo si es necesario, o solo lo mostramos
+    col_logo, col_vacia = st.columns([1, 4]) # 1 parte logo, 4 partes vacías (alineado a la izquierda)
+    with col_logo:
+        st.image(logo_path, width=150) # Ajusta 'width' (ancho en píxeles) según tu logo
+else:
+    # Si no encuentra el logo, muestra un mensaje de aviso sutil (opcional)
+    # st.warning("No se encontró el archivo logo.png. Por favor, súbelo a GitHub.")
+    pass # O simplemente no muestra nada y sigue
 
 # --- CONFIGURACIÓN DE ZONA HORARIA (HONDURAS) ---
 hn_tz = pytz.timezone('America/Tegucigalpa')
@@ -14,6 +30,7 @@ def obtener_hora_hn():
 # --- BASE DE DATOS COMPARTIDA (Persiste para todos los usuarios) ---
 @st.cache_resource
 def inicializar_db_comun():
+    # Inicialización de datos por defecto
     return {
         "historial": [],
         "fertilizantes": [],
@@ -28,10 +45,11 @@ def inicializar_db_comun():
 
 db = inicializar_db_comun()
 
+# --- TÍTULO PRINCIPAL ---
 st.title("🚜 AgroTrack Pro - Honduras 🇭🇳")
 st.write(f"⏰ **Hora Local:** {obtener_hora_hn().strftime('%H:%M:%S')} | **Fecha:** {obtener_hora_hn().strftime('%d/%m/%Y')}")
 
-# --- SECCIÓN 1: ESTADO DE PARCELAS (RECUPERADO) ---
+# --- SECCIÓN 1: ESTADO DE PARCELAS ---
 st.header("📍 Mapa de Bloques / Parcelas")
 st.info("Instrucciones: Haz clic en una parcela para marcarla como 'EN LABOR' (Rojo) o 'Libre' (Verde).")
 
@@ -135,6 +153,19 @@ with tab1:
         
         csv = diario.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Descargar Excel Cosecha", csv, "cosecha.csv")
+    else:
+        st.write("Sin datos de cosecha.")
+
+with tab2:
+    if db["fertilizantes"]:
+        st.table(pd.DataFrame(db["fertilizantes"]))
+    else:
+        st.write("Sin aplicaciones registradas.")
+
+with tab3:
+    if db["historial"]:
+        st.dataframe(pd.DataFrame(db["historial"]), use_container_width=True)
+
 
 
 
