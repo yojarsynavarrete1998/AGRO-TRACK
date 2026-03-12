@@ -1,84 +1,76 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import time
 
-# Configuración visual de la App
-st.set_page_config(page_title="AgroTrack Pro", page_icon="🚜", layout="wide")
+st.set_page_config(page_title="AgroTrack Compartido", layout="wide")
 
-st.title("🚜 Sistema de Gestión Agrícola")
-st.markdown("### Registro de Actividades en Tiempo Real")
-
-# --- INICIALIZACIÓN DE DATOS (Estado de la Sesión) ---
-if 'historial' not in st.session_state:
-    st.session_state.historial = []
-
-if 'cronometros' not in st.session_state:
-    st.session_state.cronometros = {
-        "Riego": {"activo": False, "inicio": None},
-        "Foliar": {"activo": False, "inicio": None},
-        "Fertirriego": {"activo": False, "inicio": None}
+# --- LA CAJA COMÚN (Para que todos vean lo mismo) ---
+@st.cache_resource
+def obtener_base_datos_comun():
+    # Esto solo se ejecuta una vez cuando la app nace en internet
+    return {
+        "historial": [],
+        "parcelas": {f"Parcela {i}": "Libre" for i in range(1, 7)},
+        "cronometros": {
+            "Riego": {"activo": False, "inicio": None},
+            "Foliar": {"activo": False, "inicio": None},
+            "Fertirriego": {"activo": False, "inicio": None}
+        }
     }
 
-if 'parcelas' not in st.session_state:
-    st.session_state.parcelas = {f"Parcela {i}": "Libre" for i in range(1, 7)}
+db = obtener_base_datos_comun()
 
-# --- SECCIÓN 1: ESTADO DE PARCELAS ---
-st.subheader("📍 Mapa de Bloques")
+st.title("🚜 AgroTrack: Panel Compartido")
+st.info("💡 Lo que registres aquí será visible para todos los demás usuarios en tiempo real.")
+
+# --- SECCIÓN 1: MAPA DE PARCELAS ---
+st.subheader("📍 Estado Actual de los Bloques")
 cols_p = st.columns(3)
-for i, (nombre, estado) in enumerate(st.session_state.parcelas.items()):
+for i, (nombre, estado) in enumerate(db["parcelas"].items()):
     with cols_p[i % 3]:
         color = "🟢" if estado == "Libre" else "🔴"
-        st.info(f"{color} **{nombre}**: {estado}")
+        st.write(f"{color} **{nombre}**")
         if st.button(f"Cambiar {nombre}", key=f"btn_{nombre}"):
-            st.session_state.parcelas[nombre] = "EN LABOR" if estado == "Libre" else "Libre"
+            db["parcelas"][nombre] = "EN LABOR" if estado == "Libre" else "Libre"
             st.rerun()
 
 st.divider()
 
-# --- SECCIÓN 2: CRONÓMETRO DE LABORES ---
-st.subheader("⚡ Control de Tareas")
+# --- SECCIÓN 2: CONTROL DE LABORES ---
+st.subheader("⚡ Labores en Ejecución")
 c1, c2, c3 = st.columns(3)
 
-def controlador_tiempo(nombre_tarea, columna):
+def controlador_compartido(nombre_tarea, columna):
     with columna:
-        estado = st.session_state.cronometros[nombre_tarea]
+        estado = db["cronometros"][nombre_tarea]
         if not estado["activo"]:
             if st.button(f"▶️ Iniciar {nombre_tarea}", use_container_width=True):
-                st.session_state.cronometros[nombre_tarea]["activo"] = True
-                st.session_state.cronometros[nombre_tarea]["inicio"] = datetime.now()
+                db["cronometros"][nombre_tarea]["activo"] = True
+                db["cronometros"][nombre_tarea]["inicio"] = datetime.now()
                 st.rerun()
         else:
-            st.error(f"⏳ {nombre_tarea} en curso...")
-            if st.button(f"⏹️ Detener {nombre_tarea}", type="primary", use_container_width=True):
+            st.error(f"⏳ {nombre_tarea} ACTIVO")
+            # Mostrar cuánto tiempo lleva (opcional)
+            if st.button(f"⏹️ Finalizar {nombre_tarea}", type="primary", use_container_width=True):
                 fin = datetime.now()
-                inicio = estado["inicio"]
-                duracion = fin - inicio
-                
-                # Guardar registro
-                registro = {
-                    "Actividad": nombre_tarea,
-                    "Inicio": inicio.strftime("%H:%M:%S"),
+                duracion = str(fin - estado["inicio"]).split(".")[0]
+                db["historial"].append({
+                    "Labor": nombre_tarea,
+                    "Inicio": estado["inicio"].strftime("%H:%M:%S"),
                     "Fin": fin.strftime("%H:%M:%S"),
-                    "Duración": str(duracion).split(".")[0] # Quita los microsegundos
-                }
-                st.session_state.historial.append(registro)
-                st.session_state.cronometros[nombre_tarea]["activo"] = False
+                    "Duración": duracion
+                })
+                db["cronometros"][nombre_tarea]["activo"] = False
                 st.rerun()
 
-controlador_tiempo("Riego", c1)
-controlador_tiempo("Foliar", c2)
-controlador_tiempo("Fertirriego", c3)
+controlador_compartido("Riego", c1)
+controlador_compartido("Foliar", c2)
+controlador_compartido("Fertirriego", c3)
 
-# --- SECCIÓN 3: TABLA DE DATOS ---
+# --- SECCIÓN 3: HISTORIAL ---
 st.divider()
-st.subheader("📋 Bitácora del Día")
-if st.session_state.historial:
-    df = pd.DataFrame(st.session_state.historial)
-    st.table(df)
+if db["historial"]:
+    st.subheader("📋 Resumen de hoy (Todos los usuarios)")
+    st.table(pd.DataFrame(db["historial"]))
     
-    # Botón de exportación rápido
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📩 Descargar Reporte CSV", csv, "reporte_agricola.csv", "text/csv")
-else:
-    st.write("Aún no hay labores terminadas hoy.")
+
