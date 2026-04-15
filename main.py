@@ -2,40 +2,31 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
-import os # Necesario para verificar si la imagen existe
+import os
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="AgroTrack Pro Honduras", layout="wide", page_icon="🚜")
 
-# --- SECCIÓN DEL LOGO (NUEVO) ---
-# Intentamos cargar el logo desde la carpeta del repositorio
-logo_path = "logo.png" # Asegúrate de que este nombre coincida con el que subiste a GitHub
-
+# --- SECCIÓN DEL LOGO ---
+logo_path = "logo.png" 
 if os.path.exists(logo_path):
-    # Usamos columnas para centrar el logo si es necesario, o solo lo mostramos
-    col_logo, col_vacia = st.columns([1, 4]) # 1 parte logo, 4 partes vacías (alineado a la izquierda)
+    col_logo, _ = st.columns([1, 4])
     with col_logo:
-        st.image(logo_path, width=150) # Ajusta 'width' (ancho en píxeles) según tu logo
-else:
-    # Si no encuentra el logo, muestra un mensaje de aviso sutil (opcional)
-    # st.warning("No se encontró el archivo logo.png. Por favor, súbelo a GitHub.")
-    pass # O simplemente no muestra nada y sigue
+        st.image(logo_path, width=150)
 
-# --- CONFIGURACIÓN DE ZONA HORARIA (HONDURAS) ---
+# --- ZONA HORARIA HONDURAS ---
 hn_tz = pytz.timezone('America/Tegucigalpa')
-
 def obtener_hora_hn():
     return datetime.now(hn_tz)
 
-# --- BASE DE DATOS COMPARTIDA (Persiste para todos los usuarios) ---
+# --- BASE DE DATOS COMPARTIDA ---
 @st.cache_resource
 def inicializar_db_comun():
-    # Inicialización de datos por defecto
     return {
         "historial": [],
         "fertilizantes": [],
         "cosecha": [],
-        "parcelas": {f"Parcela {i}": "Libre" for i in range(1, 11)}, # Ajustado a 10 parcelas
+        "parcelas": {f"Parcela {i}": "Libre" for i in range(1, 11)},
         "cronometros": {
             "Riego": {"activo": False, "inicio": None},
             "Foliar": {"activo": False, "inicio": None},
@@ -45,32 +36,23 @@ def inicializar_db_comun():
 
 db = inicializar_db_comun()
 
-# --- TÍTULO PRINCIPAL ---
 st.title("🚜 AgroTrack Pro - Honduras 🇭🇳")
-st.write(f"⏰ **Hora Local:** {obtener_hora_hn().strftime('%H:%M:%S')} | **Fecha:** {obtener_hora_hn().strftime('%d/%m/%Y')}")
+st.write(f"⏰ **Hora Local:** {obtener_hora_hn().strftime('%H:%M:%S')}")
 
-# --- SECCIÓN 1: ESTADO DE PARCELAS ---
-st.header("📍 Mapa de Bloques / Parcelas")
-st.info("Instrucciones: Haz clic en una parcela para marcarla como 'EN LABOR' (Rojo) o 'Libre' (Verde).")
-
-# Crear una cuadrícula para las parcelas
+# --- PARCELAS ---
+st.header("📍 Mapa de Bloques")
 cols_p = st.columns(5) 
 for i, (nombre, estado) in enumerate(db["parcelas"].items()):
     with cols_p[i % 5]:
-        if estado == "Libre":
-            st.success(f"🟢 {nombre}")
-            if st.button(f"Ocupar {nombre}", key=f"btn_{nombre}"):
-                db["parcelas"][nombre] = "EN LABOR"
-                st.rerun()
-        else:
-            st.error(f"🔴 {nombre}")
-            if st.button(f"Liberar {nombre}", key=f"btn_{nombre}"):
-                db["parcelas"][nombre] = "Libre"
-                st.rerun()
+        color = "🟢" if estado == "Libre" else "🔴"
+        st.write(f"{color} **{nombre}**")
+        if st.button(f"Cambiar {nombre}", key=f"btn_{nombre}"):
+            db["parcelas"][nombre] = "EN LABOR" if estado == "Libre" else "Libre"
+            st.rerun()
 
 st.divider()
 
-# --- SECCIÓN 2: CONTROL DE LABORES ---
+# --- LABORES ---
 st.header("⚡ Labores en Tiempo Real")
 c1, c2, c3 = st.columns(3)
 
@@ -101,66 +83,46 @@ controlador("Riego", c1)
 controlador("Foliar", c2)
 controlador("Fertirriego", c3)
 
-# --- SECCIÓN 3: DETALLES DE FERTIRRIEGO ---
+# --- FERTIRRIEGO ---
 if db["cronometros"]["Fertirriego"]["activo"]:
-    st.markdown("### 🧪 Insumos para Fertirriego")
-    with st.form("form_fertilizante"):
-        insumo = st.text_input("Producto / Fertilizante")
-        cant = st.number_input("Cantidad (kg o L)", min_value=0.0)
-        enviar = st.form_submit_button("Registrar Insumo")
-        if enviar:
-            db["fertilizantes"].append({
-                "Hora": obtener_hora_hn().strftime("%H:%M"),
-                "Producto": insumo,
-                "Cantidad": cant
-            })
-            st.toast("Insumo registrado correctamente")
+    st.info("🧪 Registro de Insumos")
+    with st.form("form_fert"):
+        insumo = st.text_input("Producto")
+        cant = st.number_input("Cantidad (kg/L)", min_value=0.0)
+        if st.form_submit_button("Registrar"):
+            db["fertilizantes"].append({"Hora": obtener_hora_hn().strftime("%H:%M"), "Producto": insumo, "Cantidad": cant})
+            st.success("Guardado")
 
-# --- SECCIÓN 4: COSECHA ---
+# --- COSECHA ---
 st.divider()
-st.header("🧺 Registro de Cosecha")
-with st.container():
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        cant_cestas = st.number_input("Número de cestas", min_value=0, step=1)
-    with col_c2:
-        if st.button("📥 Guardar Cosecha", use_container_width=True):
-            ahora = obtener_hora_hn()
-            db["cosecha"].append({
-                "Fecha": ahora.strftime("%Y-%m-%d"),
-                "Semana": ahora.isocalendar()[1],
-                "Cestas": cant_cestas
-            })
-            st.success(f"Registradas {cant_cestas} cestas")
+st.header("🧺 Cosecha")
+col_c1, col_c2 = st.columns(2)
+with col_c1:
+    cant_cestas = st.number_input("Cestas", min_value=0, step=1)
+with col_c2:
+    if st.button("📥 Guardar Cosecha", use_container_width=True):
+        ahora = obtener_hora_hn()
+        db["cosecha"].append({"Fecha": ahora.strftime("%Y-%m-%d"), "Semana": ahora.isocalendar()[1], "Cestas": cant_cestas})
+        st.success("Registrado")
 
-# --- SECCIÓN 5: REPORTES ---
+# --- REPORTES ---
 st.divider()
-st.header("📊 Resumen de Datos")
-
-tab1, tab2, tab3 = st.tabs(["Cosecha", "Fertilizantes", "Historial Tiempos"])
+st.header("📊 Reportes")
+tab1, tab2, tab3 = st.tabs(["Cosecha", "Fertilizantes", "Tiempos"])
 
 with tab1:
     if db["cosecha"]:
         df_c = pd.DataFrame(db["cosecha"])
-        # Reporte Diario
-        st.subheader("Diario")
         diario = df_c.groupby("Fecha")["Cestas"].sum().reset_index()
         st.dataframe(diario, use_container_width=True)
-        # Reporte Semanal
-        st.subheader("Semanal")
-        semanal = df_c.groupby("Semana")["Cestas"].sum().reset_index()
-        st.dataframe(semanal, use_container_width=True)
-        
         csv = diario.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Excel Cosecha", csv, "cosecha.csv")
+        st.download_button("📥 Descargar Excel", csv, "cosecha.csv")
     else:
-        st.write("Sin datos de cosecha.")
+        st.write("Sin datos")
 
 with tab2:
     if db["fertilizantes"]:
         st.table(pd.DataFrame(db["fertilizantes"]))
-    else:
-        st.write("Sin aplicaciones registradas.")
 
 with tab3:
     if db["historial"]:
