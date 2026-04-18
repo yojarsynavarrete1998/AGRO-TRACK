@@ -1,116 +1,121 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import os
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="ARGEAL Control", layout="wide", page_icon="🌱")
+# --- CONFIGURACIÓN ESTÉTICA ---
+st.set_page_config(page_title="ARGEAL Smart Control", layout="wide")
+
+# Estilo personalizado: Fondo oscuro y tarjetas llamativas
+st.markdown("""
+    <style>
+    .main { background-color: #f0f2f6; }
+    .stButton>button { border-radius: 10px; height: 3em; font-weight: bold; }
+    .urgente { background-color: #ff4b4b; color: white; border-radius: 5px; padding: 10px; }
+    .preventivo { background-color: #ffa500; color: white; border-radius: 5px; padding: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
 hn_tz = pytz.timezone('America/Tegucigalpa')
-def hora_hn():
-    return datetime.now(hn_tz)
+def hora_hn(): return datetime.now(hn_tz)
 
-# --- INICIALIZACIÓN DE BASES DE DATOS SEPARADAS ---
-if 'db_okra' not in st.session_state:
-    st.session_state.db_okra = {"log": [], "parcelas": {f"O-{i}": "Libre" for i in range(1, 11)}, "sel": None}
+# --- BASES DE DATOS ---
+if 'db' not in st.session_state:
+    # Estructura con fecha de siembra y alertas
+    st.session_state.db = {
+        "Okra": {"log": [], "parcelas": {f"O-{i}": {"estado": "Libre", "siembra": None, "bloqueo": None} for i in range(1, 11)}},
+        "Maiz": {"log": [], "parcelas": {f"M-{i}": {"estado": "Libre", "siembra": None, "bloqueo": None} for i in range(1, 11)}},
+        "segmento": None,
+        "sel": None
+    }
 
-if 'db_maiz' not in st.session_state:
-    st.session_state.db_maiz = {"log": [], "parcelas": {f"M-{i}": "Libre" for i in range(1, 11)}, "sel": None}
+db = st.session_state.db
 
-if 'segmento' not in st.session_state:
-    st.session_state.segmento = None
-
-# --- PANTALLA DE SELECCIÓN INICIAL ---
-if st.session_state.segmento is None:
-    st.title("🏢 ARGEAL - Gestión Agrícola")
-    st.subheader("Seleccione el segmento de producción:")
-    
+# --- SELECTOR DE SEGMENTO ---
+if db["segmento"] is None:
+    st.title("🏢 ARGEAL - Centro de Mando")
     col1, col2 = st.columns(2)
-    
     with col1:
-        # Aquí puedes subir un archivo llamado logo_okra.png a tu GitHub
-        if os.path.exists("logo_okra.png"):
-            st.image("logo_okra.png", width=200)
-        st.header("🟢 OKRA")
-        if st.button("Entrar a Okra", use_container_width=True):
-            st.session_state.segmento = "Okra"
-            st.rerun()
-            
+        if st.button("🚜 ENTRAR A OKRA (Exportación)", use_container_width=True):
+            db["segmento"] = "Okra"; st.rerun()
     with col2:
-        # Aquí puedes subir un archivo llamado logo_maiz.png a tu GitHub
-        if os.path.exists("logo_maiz.png"):
-            st.image("logo_maiz.png", width=200)
-        st.header("🌽 MAÍZ")
-        if st.button("Entrar a Maíz", use_container_width=True):
-            st.session_state.segmento = "Maiz"
-            st.rerun()
-
-# --- INTERFAZ INTERNA DE SEGMENTO ---
+        if st.button("🌽 ENTRAR A MAÍZ (Grano)", use_container_width=True):
+            db["segmento"] = "Maiz"; st.rerun()
 else:
-    seg = st.session_state.segmento
-    db = st.session_state.db_okra if seg == "Okra" else st.session_state.db_maiz
+    seg = db["segmento"]
+    p_data = db[seg]["parcelas"]
     
-    # Encabezado Personalizado
-    col_logo, col_titulo = st.columns([1, 4])
-    with col_logo:
-        archivo_logo = "logo_okra.png" if seg == "Okra" else "logo_maiz.png"
-        if os.path.exists(archivo_logo):
-            st.image(archivo_logo, width=100)
-    with col_titulo:
-        st.title(f"ARGEAL - Proyecto {seg}")
-        if st.button("⬅️ Cambiar Segmento"):
-            st.session_state.segmento = None
-            st.rerun()
+    st.title(f"PROYECTO {seg.upper()} - ARGEAL")
+    if st.button("⬅️ Volver al Menú Principal"):
+        db["segmento"] = None; st.rerun()
 
-    st.write(f"⏰ {hora_hn().strftime('%d/%m/%Y | %H:%M:%S')}")
-
-    # --- MAPA DE PARCELAS ---
-    st.subheader(f"📍 Bloques de {seg}")
+    # --- MAPA VISUAL CON ALERTAS ---
+    st.subheader("📍 Estado de Bloques")
     cols = st.columns(5)
-    for i, (nombre, estado) in enumerate(db["parcelas"].items()):
+    for i, (id_p, info) in enumerate(p_data.items()):
         with cols[i % 5]:
-            tipo = "primary" if db["sel"] == nombre else "secondary"
-            if st.button(f"{nombre}\n({estado})", key=f"btn_{seg}_{nombre}", type=tipo, use_container_width=True):
-                db["sel"] = nombre
+            # Lógica de colores según estado
+            color = "secondary"
+            label = f"{id_p}\n{info['estado']}"
+            
+            # Alerta de bloqueo por carencia
+            if info['bloqueo'] and hora_hn().date() < info['bloqueo']:
+                color = "primary" # Azul/Rojo en Streamlit para resaltar
+                label = f"🚫 {id_p}\nBLOQUEADO"
+            elif info['estado'] == "URGENTE":
+                label = f"⚠️ {id_p}\nREVISAR"
+
+            if st.button(label, key=id_p, type=color, use_container_width=True):
+                db["sel"] = id_p
                 st.rerun()
 
-    # --- EXPEDIENTE ---
+    # --- EXPEDIENTE Y FORMULARIO ---
     if db["sel"]:
         p_sel = db["sel"]
         st.divider()
-        st.header(f"📋 Expediente: {p_sel}")
-        
-        c_inf, c_reg = st.columns([2, 1])
+        col_exp, col_form = st.columns([2, 1])
 
-        with c_inf:
-            if db["log"]:
-                df = pd.DataFrame(db["log"])
-                df_p = df[df["Parcela"] == p_sel]
-                if not df_p.empty:
-                    st.dataframe(df_p.drop(columns=["Parcela"]), use_container_width=True)
-                else:
-                    st.info("Sin registros.")
-            else:
-                st.info("Bitácora vacía.")
+        with col_exp:
+            st.header(f"📋 Detalles {p_sel}")
+            # Mostrar días desde la siembra
+            if p_data[p_sel]['siembra']:
+                dias = (hora_hn().date() - p_data[p_sel]['siembra']).days
+                st.metric("Edad del Cultivo", f"{dias} días")
+            
+            if p_data[p_sel]['bloqueo']:
+                restante = (p_data[p_sel]['bloqueo'] - hora_hn().date()).days
+                if restante > 0:
+                    st.error(f"⚠️ Días de Carencia restantes: {restante} días. ¡No Cosechar!")
 
-        with c_reg:
-            with st.form(f"form_{seg}"):
-                act = st.selectbox("Actividad", ["Cosecha", "Fertirriego", "Fitosanitario", "Mantenimiento", "Labor Cultural"])
-                det = st.text_input("Detalle")
-                resp = st.text_input("Responsable")
-                if st.form_submit_button("Guardar"):
-                    db["log"].append({
-                        "Fecha": hora_hn().strftime("%Y-%m-%d %H:%M"),
-                        "Parcela": p_sel,
-                        "Actividad": act,
-                        "Detalle": det,
-                        "Responsable": resp
-                    })
-                    if act == "Cosecha": db["parcelas"][p_sel] = "EN COSECHA"
-                    st.success("Guardado")
+        with col_form:
+            st.subheader("⚙️ Registrar Labor")
+            with st.form("registro"):
+                tipo = st.selectbox("Prioridad/Labor", [
+                    "Normal: Cosecha", 
+                    "Normal: Fertirriego",
+                    "MANEJABLE: Labor Cultural",
+                    "EXIGENTE: Control Plagas",
+                    "BLOQUEO: Aplicación Química"
+                ])
+                fecha_s = st.date_input("¿Fecha de Siembra?", value=None)
+                dias_c = st.number_input("Días de Carencia (si aplica)", min_value=0)
+                det = st.text_area("Notas")
+                
+                if st.form_submit_button("Actualizar Parcela"):
+                    # Guardar log
+                    db[seg]["log"].append({"Fecha": hora_hn(), "P": p_sel, "Tarea": tipo, "Nota": det})
+                    
+                    # Actualizar estado de la parcela
+                    if "EXIGENTE" in tipo: p_data[p_sel]["estado"] = "URGENTE"
+                    else: p_data[p_sel]["estado"] = "Activo"
+                    
+                    if fecha_s: p_data[p_sel]["siembra"] = fecha_s
+                    if dias_c > 0:
+                        p_data[p_sel]["bloqueo"] = hora_hn().date() + timedelta(days=dias_c)
+                    
+                    st.success("Información actualizada")
                     st.rerun()
-
 
 
 
