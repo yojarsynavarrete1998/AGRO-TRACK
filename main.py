@@ -2,131 +2,108 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
-import os
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="AgroTrack Pro Honduras", layout="wide", page_icon="🚜")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="AgroTrack Pro", layout="wide", page_icon="🚜")
 
-# --- SECCIÓN DEL LOGO ---
-logo_path = "logo.png" 
-if os.path.exists(logo_path):
-    col_logo, _ = st.columns([1, 4])
-    with col_logo:
-        st.image(logo_path, width=150)
-
-# --- ZONA HORARIA HONDURAS ---
+# Zona Horaria Honduras
 hn_tz = pytz.timezone('America/Tegucigalpa')
-def obtener_hora_hn():
+def hora_hn():
     return datetime.now(hn_tz)
 
-# --- BASE DE DATOS COMPARTIDA ---
-@st.cache_resource
-def inicializar_db_comun():
-    return {
-        "historial": [],
-        "fertilizantes": [],
-        "cosecha": [],
+# --- BASE DE DATOS (ESTADO DE SESIÓN) ---
+if 'db' not in st.session_state:
+    st.session_state.db = {
+        "log_actividades": [],
         "parcelas": {f"Parcela {i}": "Libre" for i in range(1, 11)},
-        "cronometros": {
-            "Riego": {"activo": False, "inicio": None},
-            "Foliar": {"activo": False, "inicio": None},
-            "Fertirriego": {"activo": False, "inicio": None}
-        }
+        "seleccionada": None
     }
 
-db = inicializar_db_comun()
+db = st.session_state.db
 
-st.title("🚜 AgroTrack Pro - Honduras 🇭🇳")
-st.write(f"⏰ **Hora Local:** {obtener_hora_hn().strftime('%H:%M:%S')}")
+st.title("🚜 AgroTrack Pro - Alnagro 🇭🇳")
+st.write(f"📅 **Fecha:** {hora_hn().strftime('%d/%m/%Y')} | ⏰ **Hora:** {hora_hn().strftime('%H:%M:%S')}")
 
-# --- PARCELAS ---
-st.header("📍 Mapa de Bloques")
-cols_p = st.columns(5) 
+# --- SECCIÓN 1: MAPA DE PARCELAS ---
+st.subheader("📍 Mapa de Bloques (Toca uno para ver detalles)")
+cols = st.columns(5)
 for i, (nombre, estado) in enumerate(db["parcelas"].items()):
-    with cols_p[i % 5]:
-        color = "🟢" if estado == "Libre" else "🔴"
-        st.write(f"{color} **{nombre}**")
-        if st.button(f"Cambiar {nombre}", key=f"btn_{nombre}"):
-            db["parcelas"][nombre] = "EN LABOR" if estado == "Libre" else "Libre"
+    with cols[i % 5]:
+        # El botón cambia de estilo si la parcela está seleccionada
+        tipo_boton = "primary" if db["seleccionada"] == nombre else "secondary"
+        if st.button(f"{nombre}\n({estado})", key=f"btn_{nombre}", type=tipo_boton, use_container_width=True):
+            db["seleccionada"] = nombre
             st.rerun()
 
 st.divider()
 
-# --- LABORES ---
-st.header("⚡ Labores en Tiempo Real")
-c1, c2, c3 = st.columns(3)
+# --- SECCIÓN 2: EXPEDIENTE DE LA PARCELA SELECCIONADA ---
+if db["seleccionada"]:
+    p_sel = db["seleccionada"]
+    st.header(f"📋 Expediente: {p_sel}")
+    
+    col_info, col_registro = st.columns([2, 1])
 
-def controlador(nombre_tarea, columna):
-    with columna:
-        estado = db["cronometros"][nombre_tarea]
-        if not estado["activo"]:
-            if st.button(f"▶️ Iniciar {nombre_tarea}", use_container_width=True):
-                db["cronometros"][nombre_tarea]["activo"] = True
-                db["cronometros"][nombre_tarea]["inicio"] = obtener_hora_hn()
-                st.rerun()
+    with col_info:
+        st.subheader("📜 Historial de Labores")
+        if db["log_actividades"]:
+            df = pd.DataFrame(db["log_actividades"])
+            # Filtramos para mostrar solo lo de esta parcela
+            df_parcela = df[df["Parcela"] == p_sel]
+            if not df_parcela.empty:
+                st.dataframe(df_parcela.drop(columns=["Parcela"]), use_container_width=True)
+            else:
+                st.info("No hay registros previos para esta parcela.")
         else:
-            st.warning(f"⏳ {nombre_tarea} EN CURSO")
-            if st.button(f"⏹️ Finalizar {nombre_tarea}", type="primary", use_container_width=True):
-                fin = obtener_hora_hn()
-                duracion = str(fin - estado["inicio"]).split(".")[0]
-                db["historial"].append({
-                    "Fecha": fin.strftime("%Y-%m-%d"),
-                    "Labor": nombre_tarea,
-                    "Inicio": estado["inicio"].strftime("%H:%M:%S"),
-                    "Fin": fin.strftime("%H:%M:%S"),
-                    "Duración": duracion
-                })
-                db["cronometros"][nombre_tarea]["activo"] = False
+            st.info("La bitácora está vacía.")
+
+    with col_registro:
+        st.subheader("➕ Registrar Labor")
+        with st.form("nueva_labor"):
+            tipo_labor = st.selectbox("Tipo de Actividad", [
+                "Cosecha", "Fertirriego", "Control Fitosanitario", 
+                "Mantenimiento Riego", "Labor Cultural", "Monitoreo"
+            ])
+            detalle = st.text_input("Detalle (Ej: 50 cestas / Urea / Gusano)")
+            responsable = st.text_input("Responsable")
+            
+            if st.form_submit_button("Guardar en Bitácora"):
+                nueva_entrada = {
+                    "Fecha": hora_hn().strftime("%Y-%m-%d %H:%M"),
+                    "Parcela": p_sel,
+                    "Actividad": tipo_labor,
+                    "Detalle": detalle,
+                    "Responsable": responsable
+                }
+                db["log_actividades"].append(nueva_entrada)
+                # Si es cosecha, podríamos cambiar el estado a "En Cosecha"
+                if tipo_labor == "Cosecha":
+                    db["parcelas"][p_sel] = "COSECHANDO"
+                
+                st.success(f"Registrado en {p_sel}")
                 st.rerun()
+    
+    if st.button("⬅️ Deseleccionar Parcela"):
+        db["seleccionada"] = None
+        st.rerun()
+else:
+    st.info("👆 Toca una parcela arriba para ver su historial o registrar una nueva actividad.")
 
-controlador("Riego", c1)
-controlador("Foliar", c2)
-controlador("Fertirriego", c3)
-
-# --- FERTIRRIEGO ---
-if db["cronometros"]["Fertirriego"]["activo"]:
-    st.info("🧪 Registro de Insumos")
-    with st.form("form_fert"):
-        insumo = st.text_input("Producto")
-        cant = st.number_input("Cantidad (kg/L)", min_value=0.0)
-        if st.form_submit_button("Registrar"):
-            db["fertilizantes"].append({"Hora": obtener_hora_hn().strftime("%H:%M"), "Producto": insumo, "Cantidad": cant})
-            st.success("Guardado")
-
-# --- COSECHA ---
+# --- SECCIÓN 3: EXPORTACIÓN ---
 st.divider()
-st.header("🧺 Cosecha")
-col_c1, col_c2 = st.columns(2)
-with col_c1:
-    cant_cestas = st.number_input("Cestas", min_value=0, step=1)
-with col_c2:
-    if st.button("📥 Guardar Cosecha", use_container_width=True):
-        ahora = obtener_hora_hn()
-        db["cosecha"].append({"Fecha": ahora.strftime("%Y-%m-%d"), "Semana": ahora.isocalendar()[1], "Cestas": cant_cestas})
-        st.success("Registrado")
+if st.sidebar.button("🗑️ Reiniciar Todo (Cuidado)"):
+    st.session_state.db = {
+        "log_actividades": [],
+        "parcelas": {f"Parcela {i}": "Libre" for i in range(1, 11)},
+        "seleccionada": None
+    }
+    st.rerun()
 
-# --- REPORTES ---
-st.divider()
-st.header("📊 Reportes")
-tab1, tab2, tab3 = st.tabs(["Cosecha", "Fertilizantes", "Tiempos"])
-
-with tab1:
-    if db["cosecha"]:
-        df_c = pd.DataFrame(db["cosecha"])
-        diario = df_c.groupby("Fecha")["Cestas"].sum().reset_index()
-        st.dataframe(diario, use_container_width=True)
-        csv = diario.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Excel", csv, "cosecha.csv")
-    else:
-        st.write("Sin datos")
-
-with tab2:
-    if db["fertilizantes"]:
-        st.table(pd.DataFrame(db["fertilizantes"]))
-
-with tab3:
-    if db["historial"]:
-        st.dataframe(pd.DataFrame(db["historial"]), use_container_width=True)
+if db["log_actividades"]:
+    st.sidebar.subheader("📥 Descargas")
+    df_full = pd.DataFrame(db["log_actividades"])
+    csv = df_full.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button("Descargar Bitácora Completa", csv, "bitacora_alnagro.csv", "text/csv")
 
 
 
